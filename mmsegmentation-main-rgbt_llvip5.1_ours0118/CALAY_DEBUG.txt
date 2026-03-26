@@ -1,0 +1,29 @@
+
+
+RuntimeError: Error(s) in loading state_dict for MAE:
+	Missing key(s) in state_dict: "layers.0.gamma_1", "layers.0.gamma_2", "layers.0.attn.relative_position_bias_table", "layers.0.attn.relative_position_index",
+	 "layers.1.gamma_1", "layers.1.gamma_2", "layers.1.attn.relative_position_bias_table", "layers.1.attn.relative_position_index", "layers.2.gamma_1",
+	 "layers.2.gamma_2", "layers.2.attn.relative_position_bias_table", "layers.2.attn.relative_position_index", "layers.3.gamma_1", "layers.3.gamma_2",
+	 "layers.3.attn.relative_position_bias_table", "layers.3.attn.relative_position_index", "layers.4.gamma_1", "layers.4.gamma_2",
+	 "layers.4.attn.relative_position_bias_table", "layers.4.attn.relative_position_index", "layers.5.gamma_1", "layers.5.gamma_2",
+	 "layers.5.attn.relative_position_bias_table", "layers.5.attn.relative_position_index", "layers.6.gamma_1", "layers.6.gamma_2", "
+	 layers.6.attn.relative_position_bias_table", "layers.6.attn.relative_position_index", "layers.7.gamma_1", "layers.7.gamma_2",
+	 "layers.7.attn.relative_position_bias_table", "layers.7.attn.relative_position_index", "layers.8.gamma_1", "layers.8.gamma_2",
+	 "layers.8.attn.relative_position_bias_table", "layers.8.attn.relative_position_index", "layers.9.gamma_1", "layers.9.gamma_2",
+	 "layers.9.attn.relative_position_bias_table", "layers.9.attn.relative_position_index", "layers.10.gamma_1", "layers.10.gamma_2",
+	 "layers.10.attn.relative_position_bias_table", "layers.10.attn.relative_position_index", "layers.11.gamma_1", "layers.11.gamma_2",
+	 "layers.11.attn.relative_position_bias_table", "layers.11.attn.relative_position_index".
+	Unexpected key(s) in state_dict: "norm.weight", "norm.bias".
+
+
+
+	RuntimeError: Error(s) in loading state_dict for MAE:
+	Missing key(s) in state_dict: "layers.0.gamma_1", "layers.0.gamma_2", "layers.0.attn.relative_position_bias_table", "layers.0.attn.relative_position_index",
+	 "layers.1.gamma_1", "layers.1.gamma_2", "layers.1.attn.relative_position_bias_table", "layers.1.attn.relative_position_index", "layers.2.gamma_1",
+	  "layers.2.gamma_2", "layers.2.attn.relative_position_bias_table", "layers.2.attn.relative_position_index", "layers.3.gamma_1", "layers.3.gamma_2",
+	  "layers.3.attn.relative_position_bias_table", "layers.3.attn.relative_position_index", "layers.4.gamma_1", "layers.4.gamma_2",
+	  "layers.4.attn.relative_position_bias_table", "layers.4.attn.relative_position_index", "layers.5.gamma_1", "layers.5.gamma_2",
+	  "layers.5.attn.relative_position_bias_table", "layers.5.attn.relative_position_index", "layers.6.gamma_1", "layers.6.gamma_2",
+	  "layers.6.attn.relative_position_bias_table", "layers.6.attn.relative_position_index", "layers.7.gamma_1", "layers.7.gamma_2",
+	  "layers.7.attn.relative_position_bias_table", "layers.7.attn.relative_position_index".
+	Unexpected key(s) in state_dict: "norm.weight", "norm.bias".
