@@ -1,0 +1,12 @@
+torchrun   --nproc_per_node 4 --master_port 29595 main_pretrain_quick.py \
+    --batch_size 256 --accum_iter 4 --epochs 100 --warmup_epochs 5 --blr 1.5e-4 --weight_decay 0.05 --pin_mem \
+    --model unip_vit_small_patch16 --last_heads 16  \
+    --infpre_path /projects/calayssd/DATASET/RGBT_ALL/ \
+    --in1k_path /projects/calayssd/DATASET//ImageNet-1K/train/ \
+    --coco_path /projects/calayssd/DATASET/COCO/ \
+    --use_coco --use_in1k --per_cls_num 200 \
+    --teacher_path /projects/calay01/mdd_rgbt/unip_ssd/UNIP_RGBT_pretraining_server_rebuttal0325/UNIP_RGBT_pretraining_transform_v3.8_1223_lam1_lay11_cross_mae/imagenet-mae-cross-vitl-pretrain_trans_unip_202603.pth  \
+    --teacher_model vit_large \
+    --intermediate 18 \
+    --output_dir=./mae_large_layer18_distill_unip_small_100ep_infmix_6000ada_lam1_layer11 \
+    --log_dir=./mae_large_layer18_distill_unip_small_100ep_infmix_6000ada_lam1_layer11
