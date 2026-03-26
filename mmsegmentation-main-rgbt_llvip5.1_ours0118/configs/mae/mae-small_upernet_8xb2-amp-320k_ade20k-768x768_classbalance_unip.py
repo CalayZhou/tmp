@@ -8,6 +8,8 @@ data_preprocessor = dict(size=crop_size)
 model = dict(
     data_preprocessor=data_preprocessor,
     #pretrained = None,
+    # DINOv3 pretrained ViT checkpoint (native or wrapped checkpoint are both supported)
+    #pretrained='./pretrain/dinov3_vits16_pretrain.pth',
     #pretrained='./pretrain/0322_imagenet128w_vit-s_epoch_300_seg_transform.pth',
     #pretrained='./pretrain/unip_vit_small_by_mae_large_transform.pth',
     pretrained='./pretrain/segmodel0118/save_abla_bg_0123_checkpoint-99_transform.pth',
@@ -17,20 +19,27 @@ model = dict(
     #pretrained='./pretrain/crossattention_selfpredict_0620_epoch_500_transform.pth',
     # pretrained='./pretrain/mae_pretrain_vit_base_mmcls.pth',
     backbone=dict(
-        type='MAE',
+        type='DINOv3ViT',
         img_size=(768,768),
         patch_size=16,
+        in_channels=3,
         embed_dims=384,##768,
         num_layers=12,##8,#12,
         num_heads=6,##8,#12,
         mlp_ratio=4,##3,#4,
+        qkv_bias=True,
+        proj_bias=True,
+        ffn_bias=True,
+        norm_layer='layernorm',
+        pos_embed_rope_base=100.0,
+        pos_embed_rope_dtype='bf16',
         init_values=1.0,
         drop_path_rate=0.1,
         out_indices=[3, 5, 7, 11]),##[1, 3, 5, 7]),#[3, 5, 7, 11]  0 2 4 6
-    neck=dict(embed_dim=384*2, rescales=[4, 2, 1, 0.5]),
+    neck=dict(embed_dim=384, rescales=[4, 2, 1, 0.5]),
     decode_head=dict(
-        in_channels=[384*2, 384*2, 384*2, 384*2], num_classes=26, channels=384),#13 150
-    auxiliary_head=dict(in_channels=384*2, num_classes=26),#13 150
+        in_channels=[384, 384, 384, 384], num_classes=26, channels=384),#13 150
+    auxiliary_head=dict(in_channels=384, num_classes=26),#13 150
     test_cfg=dict(mode='slide', crop_size=(768, 768), stride=(341, 341)))
 
 optim_wrapper = dict(
