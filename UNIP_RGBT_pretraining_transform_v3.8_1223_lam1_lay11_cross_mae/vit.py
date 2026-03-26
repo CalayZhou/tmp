@@ -16,6 +16,59 @@ class LayerScale(nn.Module):
         return self.gamma * x
 
 
+def rope_rotate_half(x):
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat([-x2, x1], dim=-1)
+
+
+def rope_apply(x, sin, cos):
+    return (x * cos) + (rope_rotate_half(x) * sin)
+
+
+class RopePositionEmbedding(nn.Module):
+    """Lightweight 2D RoPE used by each transformer block.
+
+    This keeps the DINOv3 idea (relative rotary positional encoding) and
+    avoids absolute `pos_embed` parameters.
+    """
+
+    def __init__(self, head_dim, num_heads, base=100.0):
+        super().__init__()
+        if head_dim % 2 != 0:
+            raise ValueError(f"head_dim must be even for RoPE, got {head_dim}")
+        if (head_dim // 2) % 2 != 0:
+            raise ValueError(f"head_dim//2 must be even for 2D RoPE split, got {head_dim}")
+        self.head_dim = head_dim
+        self.num_heads = num_heads
+        self.base = base
+
+    def forward(self, H, W, device, dtype):
+        half = self.head_dim // 2
+        quarter = half // 2
+
+        yy, xx = torch.meshgrid(
+            torch.arange(H, device=device, dtype=torch.float32),
+            torch.arange(W, device=device, dtype=torch.float32),
+            indexing="ij",
+        )
+        yy = yy.reshape(-1)
+        xx = xx.reshape(-1)
+
+        inv_freq = 1.0 / (self.base ** (torch.arange(quarter, device=device, dtype=torch.float32) / quarter))
+        ang_y = yy[:, None] * inv_freq[None, :]
+        ang_x = xx[:, None] * inv_freq[None, :]
+        angles = torch.cat([ang_y, ang_x], dim=-1)
+
+        sin = torch.sin(angles)
+        cos = torch.cos(angles)
+        sin = torch.cat([sin, sin], dim=-1)
+        cos = torch.cat([cos, cos], dim=-1)
+
+        sin = sin[None, None, :, :].expand(1, self.num_heads, -1, -1).to(dtype=dtype)
+        cos = cos[None, None, :, :].expand(1, self.num_heads, -1, -1).to(dtype=dtype)
+        return sin, cos
+
+
 class Mlp(nn.Module):
     def __init__(
         self,
@@ -44,11 +97,6 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    """Attention path aligned with DINOv3 SelfAttention implementation.
-
-    Kept backward-compatible return_attention outputs for UNIP distillation code.
-    """
-
     def __init__(
         self,
         dim,
@@ -62,6 +110,7 @@ class Attention(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
+        self.head_dim = head_dim
         self.scale = qk_scale or head_dim**-0.5
         self.drop_rate = attn_drop
 
@@ -70,12 +119,30 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x, return_attention=False, temperature=1.0):
+    def _apply_rope(self, q, k, rope, prefix_tokens=1):
+        if rope is None:
+            return q, k
+        sin, cos = rope
+        if prefix_tokens > 0:
+            q_prefix, q_patch = q[:, :, :prefix_tokens], q[:, :, prefix_tokens:]
+            k_prefix, k_patch = k[:, :, :prefix_tokens], k[:, :, prefix_tokens:]
+            q_patch = rope_apply(q_patch, sin, cos)
+            k_patch = rope_apply(k_patch, sin, cos)
+            q = torch.cat([q_prefix, q_patch], dim=2)
+            k = torch.cat([k_prefix, k_patch], dim=2)
+        else:
+            q = rope_apply(q, sin, cos)
+            k = rope_apply(k, sin, cos)
+        return q, k
+
+    def forward(self, x, return_attention=False, temperature=1.0, rope=None, prefix_tokens=1):
         B, N, C = x.shape
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
         q, k, v = torch.unbind(qkv, 2)
         q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
+
+        q, k = self._apply_rope(q, k, rope=rope, prefix_tokens=prefix_tokens)
 
         if return_attention:
             q_rgb, q_ir = q[: B // 2], q[B // 2 :]
@@ -102,7 +169,7 @@ class Attention(nn.Module):
 
 
 class Block(nn.Module):
-    """DINOv3-style transformer block with optional LayerScale."""
+    """DINOv3-style transformer block with RoPE + LayerScale."""
 
     def __init__(
         self,
@@ -119,6 +186,7 @@ class Block(nn.Module):
         init_values=1e-5,
         proj_bias=True,
         ffn_bias=True,
+        rope_base=100.0,
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
@@ -130,6 +198,11 @@ class Block(nn.Module):
             attn_drop=attn_drop,
             proj_drop=drop,
             proj_bias=proj_bias,
+        )
+        self.rope_embed = RopePositionEmbedding(
+            head_dim=dim // num_heads,
+            num_heads=num_heads,
+            base=rope_base,
         )
 
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
@@ -146,16 +219,25 @@ class Block(nn.Module):
         )
         self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
 
-    def forward(self, x, return_attention=False, temperature=1.0):
+    def forward(self, x, return_attention=False, temperature=1.0, spatial_shape=None, prefix_tokens=1):
+        rope = None
+        if spatial_shape is not None:
+            H, W = spatial_shape
+            rope = self.rope_embed(H=H, W=W, device=x.device, dtype=x.dtype)
+
         if return_attention:
             tmp_x, attn_softmax_qk, attn_rgbt_q_rgb_k_ir_softmax, attn_rgbt_q_ir_k_rgb_softmax = self.attn(
                 self.norm1(x),
                 return_attention=True,
                 temperature=temperature,
+                rope=rope,
+                prefix_tokens=prefix_tokens,
             )
             x = x + self.drop_path(self.ls1(tmp_x))
         else:
-            x = x + self.drop_path(self.ls1(self.attn(self.norm1(x))))
+            x = x + self.drop_path(
+                self.ls1(self.attn(self.norm1(x), rope=rope, prefix_tokens=prefix_tokens))
+            )
 
         x = x + self.drop_path(self.ls2(self.mlp(self.norm2(x))))
 
@@ -188,12 +270,14 @@ class PatchEmbed(nn.Module):
 
         self.flatten_embedding = flatten_embedding
         self.embed_dim = embed_dim
+        self.last_hw = patch_grid_size
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
     def forward(self, x):
         x = self.proj(x)
         H, W = x.size(2), x.size(3)
+        self.last_hw = (H, W)
         x = x.flatten(2).transpose(1, 2)
         x = self.norm(x)
         if not self.flatten_embedding:
