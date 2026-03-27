@@ -16,7 +16,6 @@ import torch.nn as nn
 
 from vit import PatchEmbed, Block
 import torch.nn.functional as F
-from util.pos_embed import get_2d_sincos_pos_embed
 
 # import os
 # from PIL import Image
@@ -38,9 +37,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.temperature = temperature
 
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
-        num_patches = self.patch_embed.num_patches
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)
         self.intermediate=intermediate
         self.blocks = nn.ModuleList([
             Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
@@ -52,8 +49,6 @@ class MaskedAutoencoderViT(nn.Module):
 
     def initialize_weights(self):
         # initialization
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
-        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
         w = self.patch_embed.proj.weight.data
         torch.nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
@@ -210,23 +205,25 @@ class MaskedAutoencoderViT(nn.Module):
         
         # embed patches
         x = self.patch_embed(x)
+        patch_hw = self.patch_embed.last_hw
 
         # return cmss map
         #cmss_map = self.cmss_weight(x) #B//2 N
 
-        # add pos embed w/o cls token
-        x = x + self.pos_embed[:, 1:, :]
-
         # append cls token
-        cls_token = self.cls_token + self.pos_embed[:, :1, :]
-        cls_tokens = cls_token.expand(x.shape[0], -1, -1)
+        cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
             
         # apply Transformer blocks
         for i, blk in enumerate(self.blocks):
             if i == self.intermediate - 1:
                 # x, qk = blk(x, return_attention=True)
-                x, qk,attn_rgbt_q_rgb_k_ir_softmax,attn_rgbt_q_ir_k_rgb_softmax = blk(x, return_attention=True)
+                x, qk,attn_rgbt_q_rgb_k_ir_softmax,attn_rgbt_q_ir_k_rgb_softmax = blk(
+                    x,
+                    return_attention=True,
+                    spatial_shape=patch_hw,
+                    prefix_tokens=1,
+                )
 
                 # # mi cmss
                 # x_mi =  self.compute_cross_modal_mi_kl(x_cmss)
@@ -239,7 +236,7 @@ class MaskedAutoencoderViT(nn.Module):
 
                 return qk,var_rgbt #v3.3
             else:
-                x = blk(x)
+                x = blk(x, spatial_shape=patch_hw, prefix_tokens=1)
         
         return qk
 
@@ -273,4 +270,3 @@ def vit_large(**kwargs):
         patch_size=16, embed_dim=1024, depth=24, num_heads=16,
         mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
     return model
-
